@@ -1,0 +1,147 @@
+---
+
+environment:
+  unique_id: "alz-"
+  region: "eu-gb"
+  resource_group: "default"
+  tags: 
+    - "testenv"
+
+security_rules:
+  lnx-svr:
+    - {direction: "inbound", protocol: "any", port_min: 0, port_max: 65536}
+  out-all:
+    - {direction: "inbound", protocol: "icmp", port_min: 8, port_max: 0}
+    - {direction: "outbound", protocol: "any", port_min: 0, port_max: 65536}
+
+vpc:
+  name: "test-vpc"
+  classic_access: false
+  subnets:
+    public-sn:
+      {
+          zone: "3",
+          cidr_block: &public_cidr "10.100.0.0/26",
+          public_gateway: true,
+          routing_table: main-sn-rt
+      }
+    private-sn:
+      {
+          zone: "3",
+          cidr_block: &private_cidr "10.100.32.0/26",
+          public_gateway: false,
+      }
+    heartbeat-sn:
+      {
+          zone: "3",
+          cidr_block: &heartbt_cidr "10.100.64.0/26",
+          public_gateway: false,
+          routing_table: main-sn-rt
+      }
+    mgmnt-sn:
+      {
+          zone: "3",
+          cidr_block: &mgmnt_cidr "10.100.96.0/26",
+          public_gateway: false,
+          routing_table: main-sn-rt
+      }
+  route_tables:
+    new-default:
+      options: {}
+      routes:
+        - {destination: "0.0.0.0/0", action: deliver, next_hop: fortigate-pri.private-sn, zone: 3}
+    main-sn-rt:
+      options: {}
+      routes: []
+        
+custom_imgs:
+  fortigate_gw_img:
+    image_name:       "fortigate-gw-image"
+    cos_image_name:   "fortigate_byol_701_b0157_GA.qcow2"
+    bucket_base_url:  "cos://us-geo/fortinet"
+    base_os:          "ubuntu-16-04-amd64"
+
+host_ip_offsets:
+  primary_gw: &pri_host 10
+  secondary_gw: &sec_host 12
+  
+custom_hosts:
+  fortigate-pri:
+    host_name: &pri_hostname   "fg-primary-svr"
+    host_image:    fortigate_gw_img
+    host_profile:  "bx2-2x8"
+    public_ip:    true
+    host_num: *pri_host
+    primary_subnet: public-sn
+    primary_ip_spoofing: false
+    primary_security_groups:
+      - lnx-svr
+      - out-all
+    secondary_nics:
+      - {
+           attached_to: private-sn, 
+           security_grps: [lnx-svr, out-all],
+           allow_ip_spoofing: false
+        }
+      - {
+           attached_to: heartbeat-sn, 
+           security_grps: [lnx-svr, out-all],
+           allow_ip_spoofing: false
+        }
+      - {
+           attached_to: mgmnt-sn, 
+           security_grps: [lnx-svr, out-all],
+           allow_ip_spoofing: false
+        }
+    host_init:    "scripts/config-fortigate-ha.tmpl"
+    init_vars: {
+      hostname: *pri_hostname ,
+      hostnum: *pri_host ,
+      port1_ip: *public_cidr ,
+      port2_ip: *private_cidr ,
+      port3_ip: *heartbt_cidr ,
+      port4_ip: *mgmnt_cidr ,
+      ha_priority: 200,
+      hb_peer_host: *sec_host ,
+    }
+    data_volumes: []
+  fortigate-sec:
+    host_name: &sec_hostname    "fg-secondary-svr"
+    host_image:    fortigate_gw_img
+    host_profile:  "bx2-2x8"
+    public_ip:    false
+    host_num: *sec_host
+    primary_subnet: public-sn
+    primary_ip_spoofing: false
+    primary_security_groups:
+      - lnx-svr
+      - out-all
+    secondary_nics:
+      - {
+           attached_to: private-sn, 
+           security_grps: [lnx-svr, out-all],
+           allow_ip_spoofing: false
+        }
+      - {
+           attached_to: heartbeat-sn, 
+           security_grps: [lnx-svr, out-all],
+           allow_ip_spoofing: false
+        }
+      - {
+           attached_to: mgmnt-sn, 
+           security_grps: [lnx-svr, out-all],
+           allow_ip_spoofing: false
+        }
+    host_init:    "scripts/config-fortigate-ha.tmpl"
+    init_vars: {
+      hostname: *sec_hostname ,
+      hostnum: *sec_host ,
+      port1_ip: *public_cidr ,
+      port2_ip: *private_cidr ,
+      port3_ip: *heartbt_cidr ,
+      port4_ip: *mgmnt_cidr ,
+      ha_priority: 100,
+      hb_peer_host: *pri_host ,
+    }
+    data_volumes: []
+...
